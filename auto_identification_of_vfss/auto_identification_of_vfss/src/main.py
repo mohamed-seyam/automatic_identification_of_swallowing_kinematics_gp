@@ -11,15 +11,20 @@ from PyQt5.QtWidgets import QApplication, QMainWindow
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import QThread, QObject, pyqtSignal
 
-from auto_identification_of_vfss.modules.opticalflow import OpticalFlowGUI
-from auto_identification_of_vfss.modules.frame_extraction import FrameExtractionGUI
-from auto_identification_of_vfss.modules.hyoid_bone_localization import HyoidBoneLocalizationGUI
-from auto_identification_of_vfss.modules.pharyngeal_classification import PharyngealClassificationGUI
-from auto_identification_of_vfss.modules.bolus_segmentation import BolusSegmentationGUI
+from auto_identification_of_vfss.modules import (
+    BolusSegmenterGUI,
+    DynamicFrameClassifierGui,
+    FramesExtractorGUI,
+    HyoidBoneLocalizerGUI,
+    OpticalFlowGUI,
+    PharyngealClassifierGUI
+    
+)
 from auto_identification_of_vfss.ui.gui import Ui_MainWindow
 
 from helpers.helpers.image import draw_bounding_box_on_image, overlay_mask, create_distribution_img
 from helpers.helpers.convert import convert_cv2_to_pixel_map
+from helpers.helpers.paths import make_dir
 
 APPLICATION_DIRECTORY           = os.getcwd()
 DATA_PATH                       = os.path.join(APPLICATION_DIRECTORY, "data")
@@ -206,7 +211,7 @@ class MainWindow(QMainWindow):
         self.ui.inlineReport.cellClicked.connect(self.go_to_frame_from_table_s_d)
         self.ui.inlineReport_2.cellClicked.connect(self.go_to_frame_from_table_pharyngeal)
         self.ui.displacement_options_cb.currentIndexChanged.connect(self.displacement_option_changed)
-        self.ui.openButton.clicked.connect(self.loadVideoFile)
+        self.ui.openButton.clicked.connect(self.load_video_file)
         # self.ui.goButton.clicked.connect(self.jumpFrame)
         self.ui.nextFrameButton.clicked.connect(self.nextFrame)
         self.ui.prevFrameButton.clicked.connect(self.prevFrame)
@@ -289,7 +294,7 @@ class MainWindow(QMainWindow):
         worker.finished.connect(self.threads[threadName].quit)
         worker.finished.connect(worker.deleteLater)
         worker.finished.connect(self.loadingOFF)
-        worker.progress.connect(self.reportProgress)
+        worker.progress.connect(self.report_progress)
         self.threads[threadName].finished.connect(self.threads[threadName].deleteLater)
         if finish_callback_function:
             self.threads[threadName].finished.connect(finish_callback_function)
@@ -312,12 +317,12 @@ class MainWindow(QMainWindow):
 
     def start_bolus_segmentation_thread(self):
         if not Path(self.bolus_data_dir).exists():
-            mkdir_ifnotexists(self.bolus_data_dir)
+            make_dir(self.bolus_data_dir)
             self.createThread(self.bolusSegmentationWorker, threadName='bolus segmentation',
                             finish_callback_function=self.load_bolus_data)
 
     def setupStaticDynamicDistribution(self):
-        video_size = len(os.listdir(self.optflow_dir))
+        video_size = len(os.listdir(self.optical_flow_dir))
 
         ######################
         img = create_distribution_img(video_size, self.video_data_dir, self.dynamic_and_static_data_dir_ground_truth, [0, 255, 0], "Ground truth", "distribution_ground_truth.jpg")
@@ -334,7 +339,7 @@ class MainWindow(QMainWindow):
         self.loadDataToTable(self.target_regions, table_type="s_d")
 
     def setupPharyngealDistribution(self):
-        video_size = len(os.listdir(self.optflow_dir))
+        video_size = len(os.listdir(self.optical_flow_dir))
 
         ######################
         img = create_distribution_img(video_size, self.video_data_dir, self.dynamic_and_static_data_dir_ground_truth, [0, 255, 0], "Ground truth", "distribution_ground_truth.jpg")
@@ -363,29 +368,28 @@ class MainWindow(QMainWindow):
         img[begin: end, :] = [0, 0, 0]
         img = cv2.rotate(img, cv2.cv2.ROTATE_90_COUNTERCLOCKWISE)
         img = cv2.resize(img,(400,7),fx=0,fy=0, interpolation = cv2.INTER_CUBIC)
-        qimg = toQImage(img, copy = True)
-        pix = QPixmap(qimg)
+        pix = convert_cv2_to_pixel_map(img)
         self.ui.pharyngeal_gnd_truth_dist.setPixmap(pix)
 
-    def loadDataToTable(self, dataframe, table_type="s_d"):
+    def loadDataToTable(self, df, table_type="s_d"):
         if table_type == "s_d":
             self.ui.inlineReport.show()
-            n_rows = dataframe.shape[0]
+            n_rows = df.shape[0]
             self.ui.inlineReport.setColumnCount(3)
             self.ui.inlineReport.setRowCount(n_rows)
             for row in range(n_rows):
-                self.ui.inlineReport.setItem(row, 0, QtWidgets.QTableWidgetItem(str(dataframe.loc[row, 'begin'])))
-                self.ui.inlineReport.setItem(row, 1, QtWidgets.QTableWidgetItem(str(dataframe.loc[row, 'end'])))
+                self.ui.inlineReport.setItem(row, 0, QtWidgets.QTableWidgetItem(str(df.loc[row, 'begin'])))
+                self.ui.inlineReport.setItem(row, 1, QtWidgets.QTableWidgetItem(str(df.loc[row, 'end'])))
         elif table_type == "pharyngeal":
             self.ui.inlineReport_2.show()
-            n_rows = dataframe.shape[0]
+            n_rows = df.shape[0]
             self.ui.inlineReport_2.setColumnCount(3)
             self.ui.inlineReport_2.setRowCount(n_rows)
             for row in range(n_rows):
-                self.ui.inlineReport_2.setItem(row, 0, QtWidgets.QTableWidgetItem(str(dataframe.loc[row, 'begin'])))
-                self.ui.inlineReport_2.setItem(row, 1, QtWidgets.QTableWidgetItem(str(dataframe.loc[row, 'end'])))
+                self.ui.inlineReport_2.setItem(row, 0, QtWidgets.QTableWidgetItem(str(df.loc[row, 'begin'])))
+                self.ui.inlineReport_2.setItem(row, 1, QtWidgets.QTableWidgetItem(str(df.loc[row, 'end'])))
 
-    def reportProgress(self, idx):
+    def report_progress(self, idx):
         pass
 
     def nextFrame(self):
@@ -430,7 +434,7 @@ class MainWindow(QMainWindow):
             self.ui.loaderGIF.hide()
             self.ui.runningProcessLabel.setText("")
 
-    def loadVideoFile(self):
+    def load_video_file(self):
         files_name = QtWidgets.QFileDialog.getOpenFileName( self, 'Open only avi', os.getenv('HOME'), "avi(*.avi)" )
         if len(files_name[0]) > 0:
             self.video_dir = files_name[0]
@@ -438,7 +442,7 @@ class MainWindow(QMainWindow):
             self.ui.pathTextEdit.setText(self.video_dir)
             self.video_data_dir             = os.path.join(DATA_PATH, self.video_name)
             self.frames_dir                 = os.path.join(DATA_PATH, self.video_name, 'frames')
-            self.optflow_dir                = os.path.join(DATA_PATH, self.video_name, 'optflow')
+            self.optical_flow_dir           = os.path.join(DATA_PATH, self.video_name, 'optflow')
             self.hyoid_data_dir             = os.path.join(DATA_PATH, self.video_name, "hyoidbone.csv")
             self.c2_c4_data_dir             = os.path.join(DATA_PATH, self.video_name, "c2_c4.csv")
             self.bolus_data_dir             = os.path.join(DATA_PATH, self.video_name, "bolus")
@@ -453,26 +457,26 @@ class MainWindow(QMainWindow):
             self.is_video_loaded = True
             self.startCapture()
 
-            mkdir_ifnotexists(self.video_dir)
+            make_dir(self.video_dir)
             
-            self.framesExtractorWorker = FramesExtractor(   
+            self.framesExtractorWorker = FramesExtractorGUI(   
                                     frames_dir= self.frames_dir, 
                                     video_dir=self.video_dir)
-            self.opticalFlowWorker = OpticalFlow(
+            self.opticalFlowWorker = OpticalFlowGUI(
                                     video_dir=self.video_dir, 
-                                    output_dir=self.optflow_dir)
-            self.hyoidTrackingWorker = HyoidBoneLocalizer(
+                                    output_dir=self.optical_flow_dir)
+            self.hyoidTrackingWorker = HyoidBoneLocalizerGUI(
                                     video_dir=self.video_dir, 
                                     hyoid_output_dir=self.hyoid_data_dir,
                                     c2_c4_output_dir=self.c2_c4_data_dir)
-            self.DynamicClassifierWorker = DynamicFramesClassifier(
+            self.DynamicClassifierWorker = DynamicFrameClassifierGui(
                                     video_data_dir=self.video_data_dir,
                                     video_name=self.video_name.lower(),
                                     video_size = self.capture.total_frame_count,
                                     output_dir=[ self.dynamic_and_static_data_dir,
                                                 self.dynamic_and_static_data_dir_after_filteration,
                                                 self.dynamic_and_static_data_dir_ground_truth])
-            self.PharyngealClassifierWorker = PharyngealClassifier(
+            self.PharyngealClassifierWorker = PharyngealClassifierGUI(
                                     video_data_dir=self.video_data_dir,
                                     video_name=self.video_name.lower(),
                                     video_size = self.capture.total_frame_count,
@@ -480,18 +484,18 @@ class MainWindow(QMainWindow):
                                     output_dir=[ self.pharyngeal_data_dir,
                                                 self.pharyngeal_data_dir_after_filteration,
                                                 self.pharyngeal_data_dir_ground_truth])
-            self.bolusSegmentationWorker = BolusSegmentor(
+            self.bolusSegmentationWorker = BolusSegmenterGUI(
                                     video_dir=self.video_dir,
                                     output_dir=self.bolus_data_dir,
                                     pharyngial_data_dir=self.pharyngeal_data_dir_ground_truth)
 
             # Create a thread for each worker to run
             if not Path(self.frames_dir).exists():
-                mkdir_ifnotexists(self.frames_dir)
+                make_dir(self.frames_dir)
                 self.createThread(self.framesExtractorWorker, threadName= 'frames extraction')
 
-            if not Path(self.optflow_dir).exists():
-                mkdir_ifnotexists(self.optflow_dir)
+            if not Path(self.optical_flow_dir).exists():
+                make_dir(self.optical_flow_dir)
                 self.createThread(self.opticalFlowWorker, threadName= 'optical flow computation',
                                 finish_callback_function=self.start_static_and_dynamic_classification_thread)
             else:

@@ -1,5 +1,5 @@
 import tensorflow as tf
-from app.modules.dynamic_frame_classification import DynamicFrameClassifier
+from auto_identification_of_vfss.modules import DynamicFrameClassifier
 
 class PharyngealClassifier:
     def __init__(self, video_dir, video_name, dynamic_static_frames_dir, output_dir):
@@ -46,6 +46,7 @@ class PharyngealClassifier:
         
          
          
-         
-
-    
+class PharyngealClassifierGUI(QObject):
+    def __init__(self, algorithm: PharyngealClassifier):
+        super().__init__()
+        self.algorithm = algorithm
