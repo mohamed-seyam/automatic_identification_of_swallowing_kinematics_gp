@@ -1,5 +1,4 @@
 import os
-import easygui
 
 import numpy as np 
 
